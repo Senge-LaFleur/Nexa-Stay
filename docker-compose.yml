@@ -12,20 +12,95 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U hotelier_user -d hotelier_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  eureka-server:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "check_port_connectivity" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  discovery-server:
     image: openjdk:17-jdk-slim
-    container_name: eureka_server
+    container_name: discovery_server
     ports:
       - "8761:8761"
     volumes:
-      - ./nexa-stay-backend/eureka-server/target:/app
-    command: ["java", "-jar", "/app/eureka-server.jar"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8761"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
+      - ./nexa-stay-backend/discovery-server/target/discovery-server-0.0.1-SNAPSHOT.jar:/app/discovery-server.jar
+    command: >
+      bash -c "apt-get update && 
+               apt-get install -y wget && 
+               java -jar /app/discovery-server.jar"
+
+  auth-service:
+    image: openjdk:17-jdk-slim
+    container_name: auth_service
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nexa-stay-backend/authentification/target/authentification-0.0.1-SNAPSHOT.jar:/app/authentification.jar
+    command: [ "java", "-jar", "/app/authentification.jar" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/hotelier_db
+      - SPRING_DATASOURCE_USERNAME=hotelier_user
+      - SPRING_DATASOURCE_PASSWORD=hotelier_password
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_RABBITMQ_USERNAME=guest
+      - SPRING_RABBITMQ_PASSWORD=guest
+
+  notification-service:
+    image: openjdk:17-jdk-slim
+    container_name: notification_service
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./nexa-stay-backend/notification/target/notification-0.0.1-SNAPSHOT.jar:/app/notification.jar
+    command: [ "java", "-jar", "/app/notification.jar" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/hotelier_db
+      - SPRING_DATASOURCE_USERNAME=hotelier_user
+      - SPRING_DATASOURCE_PASSWORD=hotelier_password
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_RABBITMQ_USERNAME=guest
+      - SPRING_RABBITMQ_PASSWORD=guest
+      - SPRING_MAIL_HOST=smtp.gmail.com
+      - SPRING_MAIL_PORT=587
+      - SPRING_MAIL_USERNAME=asosenge04@gmail.com
+      - SPRING_MAIL_PASSWORD=zhomiuxofvadcqde
+      - SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH=true
+      - SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE=true
 
 volumes:
-  postgres_data: 
+  postgres_data:
+ 
